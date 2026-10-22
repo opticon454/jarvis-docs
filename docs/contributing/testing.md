@@ -129,6 +129,37 @@ python -m tools.acoustic_test.mic_level 0.15 0.35
 - Identical audio can score very differently between runs (speaker start-up clipping, household noise), so use a few
   dozen phrases and compare settings across several runs.
 
+### Validating a jarvisd and jarvis-agent setup
+
+A run you can start and leave: it checks the server, the https front end, the node and the voice path, and reports pass
+or fail at the end. We used one while beta testing a Docker `jarvisd` with a Raspberry Pi `jarvis-agent`. The checks are
+worth repeating on your own setup after every image or agent change.
+
+| Group | Check | Passes when |
+|---|---|---|
+| server | `/health` on 7700 and the admin UI on 7710 | `{"status":"ok"}` and the UI returns HTML |
+| server | The container | healthy, the expected image, no restarts |
+| server | The log | the Whisper, embedding and TTS engines report healthy or loaded, with no `panic` |
+| server | The database | `sqlite3 -readonly jarvis.db 'pragma quick_check'` returns `ok` |
+| https | The reverse proxy, if you use one | the UI and `/health` answer 200 over https |
+| node | The `jarvis-agent` service | active with no restarts, MQTT connected, the intended microphone is the default source |
+| server | `docker restart` of jarvisd | healthy again and the node reconnects without help |
+| voice | Five wake phrases (time, weather, a timer, a smart-home command, a joke) | the node wakes, the turn ends `spoken` with a reply |
+| voice | Three sentences that are not for Jarvis | the node does not wake |
+
+The voice checks use the same idea as the acoustic tests above: Home Assistant speaks through a speaker next to the
+node, and the run reads what the agent logged (`journalctl --user-unit jarvis-agent`). The agent logs a `wake` line with
+the score and a `voice turn` line with the outcome, transcript, reply and times. Run a warm-up phrase first so a cold
+start does not fail the first case, and leave out `jarvisd doctor`: inside the container it probes loopback and reports
+the ports as closed when they are fine.
+
+!!! note "Wake verification can reject good turns"
+    With `voice.wake_verification_mode` at `enforce`, jarvisd transcribes the short clip around the wake word and
+    drops the turn when it does not hear the wake phrase. A synthetic voice with Whisper hearing "Jabez" or "Java's"
+    ended about half of the turns as `not_for_me` (`cc: wake_unverified` in the server log), although the wake scores
+    were 0.42 to 0.93 and the command transcripts were right. If a good wake ends with no reply, look for that line
+    before tuning the wake threshold.
+
 ## Voice latency
 
 What matters most to a voice user is the time to the first spoken word. A turn is: wake word on the node, speech to
